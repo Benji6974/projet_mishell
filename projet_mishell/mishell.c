@@ -9,6 +9,7 @@
 #define MAX_CHAR 100
 #define PATH_MAX 4096
 #define MAX_ARG 64
+#define HISTORY ".history"
 int lire(char *chaine, int longueur);
 void viderBuffer();
 int compte_mots(char* chaine);
@@ -17,11 +18,13 @@ int decoupe(char **tableau_elements, char *commande,char* decoupe);
 void affiche_directory(char* last_dir, char* cwd);
 void gestioncrtl_D();
 int touch(char **liste_arg, int taille_args);
-
+void enregistreligne(char* commande);
+void history(char **liste_arg, int taille_args);
+void fn_cd(char **liste_arg,char *cwd);
+void fork_execvp(char **liste_arg);
 
 int main (){
     char commande[MAX_CHAR] = "";
-    int testcommande=0;
     char *liste_arg[MAX_ARG];
     char hostname[128];
     char last_dir[PATH_MAX] = "";
@@ -40,65 +43,87 @@ int main (){
 
 
         lire(commande, MAX_CHAR);/* lecture de l'entrée utilisateur*/
+
         gestioncrtl_D(); /* on regarde si on a pas touché sur crtl +D*/
 
         if(strlen(commande) == 0){ /* on vérifie si l'utilisateur ne rentre pas de commande*/
             printf("Rien écrit\n");
         }
         else{
-            if(!strcmp(commande,"quit")){ /* si on rentre dans les arguments "quit" on quitte le programe*/
-                exit(0);
-            }
+
             int taille_args = decoupe(liste_arg,commande," ");/* on decoupe la commande avec les espaces*/
-            int i;
-            for (i=0; i<taille_args; i++){
-                printf("%s\n",liste_arg[i]);
-            }
-
-            if(!strcmp(liste_arg[0], "touch")){
-              touch(liste_arg, taille_args);
-            }
-            if(!strcmp(liste_arg[0],"cd")){ /* si la commande est cd */
-                if (liste_arg[1] != NULL){ /* s'il a un 2eme argument*/
-                    if( chdir( liste_arg[1] ) == 0 ) {
-                        getcwd(cwd, PATH_MAX + 1 );
-                    } else {
-                        perror( liste_arg[1] );
-                    }
-                }
-                else{ /* s'il n'y a pas de 2eme argument*/
-                if( chdir(getenv("HOME")) == 0 ) { /* on va dans le home*/
-                        getcwd(cwd, PATH_MAX + 1 );
-                    } else {
-                        perror( liste_arg[1] );
-                    }
-                }
+            //enregistreligne(commande); /* enregistre la ligne de commande */
+            if (strcmp(liste_arg[0], "quit") == 0){
+                exit(0);
+            }else if(strcmp(liste_arg[0], "history") == 0){
+                history(liste_arg, taille_args);
+            }else if(strcmp(liste_arg[0], "touch") == 0){
+                touch(liste_arg, taille_args);
+            }else if(strcmp(liste_arg[0], "cd") == 0){
+                fn_cd(liste_arg,cwd);
             }else{
-                pid_t fils; /* création du pid du processus*/
-
-                fils = fork(); /* on fork le programe et on ajout du pid du fils dans la variable */
-                if (fils == -1){ /* si le fork s'st mal passé*/
-                    printf("fork error\n");
-                    exit(EXIT_FAILURE);
-                }
-                else{
-                    if (fils ==0){ /* si c'est le fils */
-
-                        execvp(liste_arg[0],liste_arg); /* on execute la commande écrite*/
-
-                    }
-                    else{ /* si c'est le père*/
-                        waitpid(fils,NULL,0); /* on atend le fils*/
-                    }
-                }
+                fork_execvp(liste_arg);
             }
-        }
 
+        }
     }while(1);
     return 0;
 }
 
+void fork_execvp(char **liste_arg){
+    pid_t fils; /* création du pid du processus*/
 
+    fils = fork(); /* on fork le programe et on ajout du pid du fils dans la variable */
+    if (fils == -1){ /* si le fork s'st mal passé*/
+        printf("fork error\n");
+        exit(EXIT_FAILURE);
+    }
+    else{
+        if (fils ==0){ /* si c'est le fils */
+
+            execvp(liste_arg[0],liste_arg); /* on execute la commande écrite*/
+
+        }
+        else{ /* si c'est le père*/
+            waitpid(fils,NULL,0); /* on atend le fils*/
+        }
+    }
+}
+
+
+void fn_cd(char **liste_arg,char *cwd){
+    if (liste_arg[1] != NULL){ /* s'il a un 2eme argument*/
+        if( chdir( liste_arg[1] ) == 0 ) {
+            getcwd(cwd, PATH_MAX + 1 );
+        } else {
+            perror( liste_arg[1] );
+        }
+    }
+    else{ /* s'il n'y a pas de 2eme argument*/
+    if( chdir(getenv("HOME")) == 0 ) { /* on va dans le home*/
+            getcwd(cwd, PATH_MAX + 1 );
+        } else {
+            perror( liste_arg[1] );
+        }
+    }
+}
+
+void history(char **liste_arg, int taille_args)
+{
+
+}
+
+void enregistreligne(char* commande)
+{
+    FILE *fichier;
+    fichier = fopen(HISTORY,"a");
+    if (fichier != NULL)
+    {
+        strcat(commande,"\n");
+        fprintf(fichier,commande);
+    }
+
+}
 void gestioncrtl_D(){
     if (feof(stdin)){ /* test de controle D*/
         printf("superrrrr\n");
