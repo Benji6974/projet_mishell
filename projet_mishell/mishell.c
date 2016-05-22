@@ -14,7 +14,6 @@
 #define HISTORY "history"
 #define BUF_SIZE 512
 
-
 int lire(char *chaine, int longueur);
 void viderBuffer();
 int compte_mots(char* chaine);
@@ -34,7 +33,8 @@ void test_commandes(char** liste_arg,char *cwd, char* commande);
 int retirer_retourChariot(char* chaine);
 int is_in_path(char *argv);
 int parse_envPath(char res[16][256], char *envPath, char symbole);
-void fct_fork_exec(char **liste_arg);
+void fct_fork_exec(char **liste_arg, int executer, char path_total[256]);
+int redirection_output(char **liste_arg);
 
 int main (){
     char commande[MAX_CHAR] = "";
@@ -70,8 +70,9 @@ int main (){
         }
         else{
 
-            enregistreligne(commande); /* enregistre la ligne de commande */
-
+            enregistreligne(commande); /* enregistre la ligne de commande dans l'HISTORY */
+            
+            fonction_test(liste_arg);
             test_commandes(liste_arg,cwd,commande);
 
         }
@@ -79,25 +80,44 @@ int main (){
     return 0;
 }
 
+/*remplir liste_arg à partir de commande
+ * tester l'entrée pour exécuter les commandes*/
 void test_commandes(char** liste_arg,char *cwd, char* commande){
     int chiffre = 0;
     int taille_args = decoupe(liste_arg,commande," ");/* on decoupe la commande avec les espaces*/
-    if (strcmp(liste_arg[0], "quit") == 0){
-        exit(0);
-    }else if(strcmp(liste_arg[0], "history") == 0){
-        history(liste_arg, taille_args);
-    }else if(strcmp(liste_arg[0], "touch") == 0){
-        touch(liste_arg, taille_args);
-    }else if(strcmp(liste_arg[0], "cd") == 0){
-        fn_cd(liste_arg,cwd);
-    }else if(sscanf(liste_arg[0], "!%d",&chiffre )){ /*exécute la commande numero $chiffre précédente*/
-        memset(liste_arg,0,MAX_ARG); /* on met a zero le tableau d'argument*/
-        commande = tab_commande(chiffre,liste_arg, commande);
-        test_commandes(liste_arg,cwd,commande);
-    }else if(strcmp(liste_arg[0], "cat") == 0){
-        cat(liste_arg, taille_args);
-    }else{
-        fct_fork_exec(liste_arg);
+    int i = 0;
+    /*exécuter la commande tant qu'on tombe pas sur un > ou | */
+    while((strcmp(liste_arg[i], ">") != 0) && (strcmp(liste_arg[i], "|") != 0)){
+
+        if (strcmp(liste_arg[0], "quit") == 0){
+            exit(0);
+        }else if(strcmp(liste_arg[0], "history") == 0){
+            history(liste_arg, taille_args);
+        }else if(strcmp(liste_arg[0], "touch") == 0){
+            touch(liste_arg, taille_args);
+        }else if(strcmp(liste_arg[0], "cd") == 0){
+            fn_cd(liste_arg,cwd);
+        }else if(sscanf(liste_arg[0], "!%d",&chiffre )){ /*exécute la commande numero $chiffre précédente*/
+            memset(liste_arg,0,MAX_ARG); /* on met a zero le tableau d'argument*/
+            commande = tab_commande(chiffre,liste_arg, commande);
+            test_commandes(liste_arg,cwd,commande);
+        }else if(strcmp(liste_arg[0], "cat") == 0){
+            cat(liste_arg, taille_args);
+        }
+        /*else if(liste_arg[1]!=NULL && strcmp(liste_arg[1], ">") == 0){
+            redirection_output(liste_arg);
+        }*/
+        else{
+            char path_total[256];
+            fct_fork_exec(liste_arg, 1, path_total);
+        }
+        i++;
+    }
+    if(liste_arg[i] != NULL && strcmp(liste_arg[i], ">")==0){
+        redirection_output(liste_arg);
+    }
+    if(liste_arg[i] != NULL && strcmp(liste_arg[i], "|")==0){
+        /*gérer pipes*/
     }
 }
 
@@ -118,7 +138,9 @@ int parse_envPath(char res[16][256], char *envPath, char symbole){
     return ligne;
 }
 
-void fct_fork_exec(char **liste_arg){
+/*exécute la commande de liste_arg si executer = 1
+ * stocke le path de la commande dans path_total */
+void fct_fork_exec(char **liste_arg, int executer, char path_total[256]){
    char *path = getenv("PATH");
    char liste_path[16][256];
    /*ranger chaque directory du PATH, séparés par ':', dans liste_path*/
@@ -129,7 +151,7 @@ void fct_fork_exec(char **liste_arg){
    //printf("NUMBER OF DIR : %d\n", nbDir); 
    while(i<nbDir && !gotcha){
        /*concaténer pour avoir path/programme*/
-       char path_total[256];
+       //char path_total[256];
        //printf("liste path i = %s ; liste arg 0 = %s\n", liste_path[i], liste_arg[0]);
        strcpy(path_total, liste_path[i]);
        strcat(path_total, "/");
@@ -144,18 +166,20 @@ void fct_fork_exec(char **liste_arg){
            fclose(pFile);
            gotcha = 1;
            /*pour ne pas tuer mishell, on crée un nouveau processus fils pour l'exécution du programme appelé*/
-           pid_t fils;
-           fils = fork();
-           if(fils == -1){ /*si le fork s'est mal passé*/
-               exit(EXIT_FAILURE);
-           }else{
-               if(fils == 0){/*si c'est le fils*/
-                   execv(path_total, liste_arg);
-               }else{ /*si c'est le père*/
-                   waitpid(fils, NULL, 0); /*on attend le fils*/
-               }
+           if(executer){
+                pid_t fils;
+                fils = fork();
+                if(fils == -1){ /*si le fork s'est mal passé*/
+                    exit(EXIT_FAILURE);
+                }else{
+                    if(fils == 0){/*si c'est le fils*/
+                        execv(path_total, liste_arg);
+                    }else{ /*si c'est le père*/
+                        waitpid(fils, NULL, 0); /*on attend le fils*/
+                    }
+                }
+                execv(liste_path[i], liste_arg);
            }
-           execv(liste_path[i], liste_arg);
        }
    }
 }
@@ -299,9 +323,6 @@ int is_in_path(char *argv){
         return EXIT_SUCCESS;
     }
 }
-
-
-
 
 void enregistreligne(char* commande){
     char test[MAX_CHAR] = "";
@@ -547,7 +568,83 @@ int copy(char **liste_arg, int taille_args){
     return 0;
 }
 
-/*séparer les fichiers des options*/ /*
-void definir_options(char **liste_arg, int taille_args, char **fichiers, char **options){
+/*Rediriger la sortie standard avec >
+ * cmd > fichier
+ * si le fichier existe déjà, il est écrasé
+ * retour 0 si succès, -1 sinon*/
+int redirection_output(char **liste_arg){
+    FILE *dest;
+    FILE *fp;
+    char path[256];
+    char buf[BUF_SIZE];
+    ssize_t nbRead;
 
-}*/
+    /*trouver le path de la commande*/
+    fct_fork_exec(liste_arg, 0, path);
+    printf("path > = %s\n", path);
+    
+    /*ouvrir / créer le fichier où écrire l'output*/
+    dest = fopen(liste_arg[2], "w");
+    if(dest == NULL){
+        printf("Erreur fopen %s\n", liste_arg[2]);
+        return -1;
+    }
+
+    /*ouvrir la commande en lecture*/
+    fp = popen(path, "r");
+    if(fp == NULL){
+        printf("Erreur popen\n");
+        return -1;
+    }
+
+    /*une do...while car fread renvoie 0 quand fini et nbRead ne peut donc pas etre init à 0*/
+    do{
+        nbRead = fread(buf, sizeof(char), BUF_SIZE, fp);
+        fwrite(buf, sizeof(char), nbRead, dest);
+    }while(nbRead!=0);
+
+    pclose(fp);
+    fclose(dest);
+    return 0;
+}
+
+/*analyser la ligne entrée*/
+/*prendre la ligne, exécuter jusqu'à trouver un > ou | ou rien,
+ * si rien à droite => normal
+ * si qqchose à droite, rediriger la sortie vers l'entrée de droite : cas > + cas |
+ * */
+
+
+/*test pipes*/
+void fonction_test(char **liste_arg){
+    int fd[2];
+
+    pid_t childpid;
+    pid_t childpid2;
+
+    char readbuffer[80];
+
+    pipe(fd);
+
+    childpid = fork();
+    if(childpid == -1){
+        printf("Erreur fork 1\n");
+        exit(EXIT_FAILURE);
+    }
+    
+    /*si c'est le fils*/
+    if(childpid == 0){
+        close(fd[0]);
+        dup2(stdout, fd[1]);
+        char path_total[256];
+        fct_fork_exec(liste_arg, 1, path_total);
+        exit(EXIT_SUCCESS);
+    }else{ /*c'est le père*/
+        close(fd[1]);
+        childpid2 = fork();
+        dup2(stdin, fd[0]);
+
+        read(fd[0], readbuffer, sizeof(readbuffer));
+        printf("Received : %s", readbuffer);
+    }
+}
