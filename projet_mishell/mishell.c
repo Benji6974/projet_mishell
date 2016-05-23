@@ -57,7 +57,6 @@ int main (){
     gethostname(hostname, sizeof hostname);
 
 
-    is_in_path("HOME");
 
 
     struct str_commande liste_commande[MAX_COMMANDE];
@@ -105,25 +104,22 @@ void test_commandes(struct str_commande liste_commande[MAX_COMMANDE],char *cwd, 
     int i = 0;
     int fd[2], fd_in =0;
     int redirection =0;
-    int comande_de_redir = 0;
-    /*exécuter la commande tant qu'on tombe pas sur un > ou | */
 
     int nb_de_commande = decoupe2(liste_commande,commande,"|");
     int y = 0;
     pid_t fils;
-    //for (y = 0; y< nb_de_commande; y++){
-    while(comande_de_redir == 1 || y< nb_de_commande){
+    while( y< nb_de_commande){
         int r = 0;
-        for(r =0; r<liste_commande[y].nb_arg;r++){
-            if (strcmp(liste_commande[y].liste_arg[r], ">") == 0){
-                redirection = 1;
-                liste_commande[y].liste_arg[r] = 0;
-                y--;
-                break;
-
+        if (redirection != 1){
+            for(r =0; r<liste_commande[y].nb_arg;r++){
+                if (strcmp(liste_commande[y].liste_arg[r], ">") == 0){
+                    redirection = 1;
+                    liste_commande[y].liste_arg[r] = 0;
+                    liste_commande[y].nb_arg = r;
+                    break;
+                }
             }
         }
-        printf("%d\n",r);
         pipe(fd);
 
         fils = fork();
@@ -133,51 +129,51 @@ void test_commandes(struct str_commande liste_commande[MAX_COMMANDE],char *cwd, 
             if(fils == 0){/*si c'est le fils*/
                 if (fd_in != 0){
                     dup2(fd_in,0); // 0 c'est stdin
-
-
                 }
                 if (y <nb_de_commande-1 || redirection == 1){ // si il reste une comande a droite ou q'il y a une redirection
                     dup2(fd[1],1); // 1 c'est stdout
-
                 }
-                if (redirection == 1){
-                    ecrire_fichier(fd[0],liste_commande[y].liste_arg[r+1]);
-                }else{
-                    if (strcmp(liste_commande[y].liste_arg[0], "quit") == 0){
+                if (strcmp(liste_commande[y].liste_arg[0], "quit") == 0){
                     exit(0);
-                    }else if(strcmp(liste_commande[y].liste_arg[0], "history") == 0){
-                        history(liste_commande[y].liste_arg, liste_commande[y].nb_arg);
-                    }else if(strcmp(liste_commande[y].liste_arg[0], "touch") == 0){
-                        touch(liste_commande[y].liste_arg, liste_commande[y].nb_arg);
-                    }else if(strcmp(liste_commande[y].liste_arg[0], "cd") == 0){
-                        fn_cd(liste_commande[y].liste_arg,cwd);
-                    }else if(sscanf(liste_commande[y].liste_arg[0], "!%d",&chiffre )){ /*exécute la commande numero $chiffre précédente*/
-                        int i;
-                        for(i=0; i<MAX_COMMANDE; i++){
-                            memset(liste_commande[y].liste_arg,0,sizeof(char*)*MAX_ARG); /* on met a zero le tableau d'argument*/
-                            liste_commande[y].nb_arg = 0;
-                        }
-                        commande = tab_commande(chiffre,liste_commande[y].liste_arg, commande);
-                        test_commandes(liste_commande,cwd,commande);
-                    }else if(strcmp(liste_commande[y].liste_arg[0], "cat") == 0){
-                        cat(liste_commande[y].liste_arg, liste_commande[y].nb_arg);
+                }else if(strcmp(liste_commande[y].liste_arg[0], "history") == 0){
+                    history(liste_commande[y].liste_arg, liste_commande[y].nb_arg);
+                    exit(EXIT_SUCCESS);
+                }else if(strcmp(liste_commande[y].liste_arg[0], "touch") == 0){
+                    touch(liste_commande[y].liste_arg, liste_commande[y].nb_arg);
+                    exit(EXIT_SUCCESS);
+                }else if(strcmp(liste_commande[y].liste_arg[0], "cd") == 0){
+                    fn_cd(liste_commande[y].liste_arg,cwd);
+                    exit(EXIT_SUCCESS);
+                }else if(sscanf(liste_commande[y].liste_arg[0], "!%d",&chiffre )){ /*exécute la commande numero $chiffre précédente*/
+                    int i;
+                    for(i=0; i<MAX_COMMANDE; i++){
+                        memset(liste_commande[y].liste_arg,0,sizeof(char*)*MAX_ARG); /* on met a zero le tableau d'argument*/
+                        liste_commande[y].nb_arg = 0;
                     }
-                    /*else if(liste_arg[1]!=NULL && strcmp(liste_arg[1], ">") == 0){
-                        redirection_output(liste_arg);
-                    }*/
-                    else{
-                        char path_total[256];
-                        fct_fork_exec(liste_commande[y].liste_arg, 1, path_total);
-                    }
+                    commande = tab_commande(chiffre,liste_commande[y].liste_arg, commande);
+                    test_commandes(liste_commande,cwd,commande);
+                    exit(EXIT_SUCCESS);
+                }else if(strcmp(liste_commande[y].liste_arg[0], "cat") == 0){
+                    cat(liste_commande[y].liste_arg, liste_commande[y].nb_arg);
+                    exit(EXIT_SUCCESS);
+                }else{
+                    char path_total[256];
+                    fct_fork_exec(liste_commande[y].liste_arg, 1, path_total);
                 }
-
-
             }else{ /*si c'est le père*/
                 close(fd[1]);
                 fd_in = fd[0];
+                if (redirection == 1){
+                    ecrire_fichier(fd[0],liste_commande[y].liste_arg[r+1]);
+                }
 
             }
         }
+        if (redirection == 1){
+
+            redirection = 0;
+        }
+
     y++;
     }
     waitpid(fils, NULL, 0); /*on attend le fils*/
@@ -321,6 +317,7 @@ void fn_cd(char **liste_arg,char *cwd){
 
 int history(char **liste_arg, int taille_args)
 {
+
     FILE* fichier = NULL;
     int i = 1;
     char chaine[MAX_CHAR] = "";
@@ -719,14 +716,14 @@ int redirection_output(char **liste_arg){
 }
 
 int ecrire_fichier(int entre, char *destination){
-    printf("coucou");
+
     int fdIn;
     int fdOut;
     int nbRead;
     char buffer[1000];
 
      /* Ouverture du fichier de destination */
-    fdOut = open(destination, O_WRONLY | O_CREAT, 0666);
+    fdOut = open(destination, O_WRONLY | O_CREAT | O_TRUNC, 0666);
 
     if (-1 == fdOut) {
         printf("Erreur dans l'ouverture du fichier de destination");
@@ -741,8 +738,7 @@ int ecrire_fichier(int entre, char *destination){
         nbRead = read(entre, buffer, sizeof(buffer));
     }
 
-    printf
-        ("La copie a du s'effectuer, verifiez le fichier de destination");
+    //printf("La copie a du s'effectuer, verifiez le fichier de destination");
 
     close(fdOut);
 
