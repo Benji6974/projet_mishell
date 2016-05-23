@@ -11,8 +11,15 @@
 #define MAX_CHAR 100
 #define PATH_MAX 4096
 #define MAX_ARG 64
+#define MAX_COMMANDE 64
 #define HISTORY "history"
 #define BUF_SIZE 512
+
+struct str_commande{
+    char *liste_arg[MAX_ARG];
+    int nb_arg;
+};
+
 
 int lire(char *chaine, int longueur);
 void viderBuffer();
@@ -29,16 +36,19 @@ void fork_execvp(char **liste_arg);
 int copy(char **liste_arg, int taille_args);
 int cat(char **liste_arg, int taille_args);
 char* tab_commande(int chiffre,char **liste_arg, char* commande);
-void test_commandes(char** liste_arg,char *cwd, char* commande);
+void test_commandes(struct str_commande liste_commande[MAX_COMMANDE],char *cwd, char* commande);
 int retirer_retourChariot(char* chaine);
 int is_in_path(char *argv);
 int parse_envPath(char res[16][256], char *envPath, char symbole);
 void fct_fork_exec(char **liste_arg, int executer, char path_total[256]);
 int redirection_output(char **liste_arg);
+int decoupe2(struct str_commande liste_commande[MAX_COMMANDE], char *ligne_entree, char* char_decoupe);
+struct str_commande decoupe1(struct str_commande liste_commande, char *ligne_entree, char* char_decoupe);
+int ecrire_fichier(int entre, char *destination);
 
 int main (){
     char commande[MAX_CHAR] = "";
-    char *liste_arg[MAX_ARG];
+
     char hostname[128];
     char last_dir[PATH_MAX] = "";
     char cwd[PATH_MAX + 1]; /*current working directory : tableau pour le chemin*/
@@ -50,9 +60,16 @@ int main (){
     is_in_path("HOME");
 
 
-    do{
+    struct str_commande liste_commande[MAX_COMMANDE];
 
-        memset(liste_arg,0,MAX_ARG); /* on met a zero le tableau d'argument*/
+    do{
+        int i;
+        for(i=0; i<MAX_COMMANDE; i++){
+            memset(liste_commande[i].liste_arg,0,sizeof(char*)*MAX_ARG); /* on met a zero le tableau d'argument*/
+            liste_commande[i].nb_arg = 0;
+        }
+
+
 
 
         strcpy(cwdtmp,cwd); /* on copie le curent directory pour pas que strtock le modifie*/
@@ -71,9 +88,9 @@ int main (){
         else{
 
             enregistreligne(commande); /* enregistre la ligne de commande dans l'HISTORY */
-            
-            fonction_test(liste_arg);
-            test_commandes(liste_arg,cwd,commande);
+
+            //fonction_test(liste_arg);
+            test_commandes(liste_commande,cwd,commande);
 
         }
     }while(1);
@@ -82,43 +99,99 @@ int main (){
 
 /*remplir liste_arg à partir de commande
  * tester l'entrée pour exécuter les commandes*/
-void test_commandes(char** liste_arg,char *cwd, char* commande){
+void test_commandes(struct str_commande liste_commande[MAX_COMMANDE],char *cwd, char* commande){
     int chiffre = 0;
-    int taille_args = decoupe(liste_arg,commande," ");/* on decoupe la commande avec les espaces*/
-    int i = 0;
-    /*exécuter la commande tant qu'on tombe pas sur un > ou | */
-    while((strcmp(liste_arg[i], ">") != 0) && (strcmp(liste_arg[i], "|") != 0)){
 
-        if (strcmp(liste_arg[0], "quit") == 0){
-            exit(0);
-        }else if(strcmp(liste_arg[0], "history") == 0){
-            history(liste_arg, taille_args);
-        }else if(strcmp(liste_arg[0], "touch") == 0){
-            touch(liste_arg, taille_args);
-        }else if(strcmp(liste_arg[0], "cd") == 0){
-            fn_cd(liste_arg,cwd);
-        }else if(sscanf(liste_arg[0], "!%d",&chiffre )){ /*exécute la commande numero $chiffre précédente*/
-            memset(liste_arg,0,MAX_ARG); /* on met a zero le tableau d'argument*/
-            commande = tab_commande(chiffre,liste_arg, commande);
-            test_commandes(liste_arg,cwd,commande);
-        }else if(strcmp(liste_arg[0], "cat") == 0){
-            cat(liste_arg, taille_args);
+    int i = 0;
+    int fd[2], fd_in =0;
+    int redirection =0;
+    int comande_de_redir = 0;
+    /*exécuter la commande tant qu'on tombe pas sur un > ou | */
+
+    int nb_de_commande = decoupe2(liste_commande,commande,"|");
+    int y = 0;
+    pid_t fils;
+    //for (y = 0; y< nb_de_commande; y++){
+    while(comande_de_redir == 1 || y< nb_de_commande){
+        int r = 0;
+        for(r =0; r<liste_commande[y].nb_arg;r++){
+            if (strcmp(liste_commande[y].liste_arg[r], ">") == 0){
+                redirection = 1;
+                liste_commande[y].liste_arg[r] = 0;
+                y--;
+                break;
+
+            }
         }
-        /*else if(liste_arg[1]!=NULL && strcmp(liste_arg[1], ">") == 0){
-            redirection_output(liste_arg);
-        }*/
-        else{
-            char path_total[256];
-            fct_fork_exec(liste_arg, 1, path_total);
+        printf("%d\n",r);
+        pipe(fd);
+
+        fils = fork();
+        if(fils == -1){ /*si le fork s'est mal passé*/
+            exit(EXIT_FAILURE);
+        }else{
+            if(fils == 0){/*si c'est le fils*/
+                if (fd_in != 0){
+                    dup2(fd_in,0); // 0 c'est stdin
+
+
+                }
+                if (y <nb_de_commande-1 || redirection == 1){ // si il reste une comande a droite ou q'il y a une redirection
+                    dup2(fd[1],1); // 1 c'est stdout
+
+                }
+                if (redirection == 1){
+                    ecrire_fichier(fd[0],liste_commande[y].liste_arg[r+1]);
+                }else{
+                    if (strcmp(liste_commande[y].liste_arg[0], "quit") == 0){
+                    exit(0);
+                    }else if(strcmp(liste_commande[y].liste_arg[0], "history") == 0){
+                        history(liste_commande[y].liste_arg, liste_commande[y].nb_arg);
+                    }else if(strcmp(liste_commande[y].liste_arg[0], "touch") == 0){
+                        touch(liste_commande[y].liste_arg, liste_commande[y].nb_arg);
+                    }else if(strcmp(liste_commande[y].liste_arg[0], "cd") == 0){
+                        fn_cd(liste_commande[y].liste_arg,cwd);
+                    }else if(sscanf(liste_commande[y].liste_arg[0], "!%d",&chiffre )){ /*exécute la commande numero $chiffre précédente*/
+                        int i;
+                        for(i=0; i<MAX_COMMANDE; i++){
+                            memset(liste_commande[y].liste_arg,0,sizeof(char*)*MAX_ARG); /* on met a zero le tableau d'argument*/
+                            liste_commande[y].nb_arg = 0;
+                        }
+                        commande = tab_commande(chiffre,liste_commande[y].liste_arg, commande);
+                        test_commandes(liste_commande,cwd,commande);
+                    }else if(strcmp(liste_commande[y].liste_arg[0], "cat") == 0){
+                        cat(liste_commande[y].liste_arg, liste_commande[y].nb_arg);
+                    }
+                    /*else if(liste_arg[1]!=NULL && strcmp(liste_arg[1], ">") == 0){
+                        redirection_output(liste_arg);
+                    }*/
+                    else{
+                        char path_total[256];
+                        fct_fork_exec(liste_commande[y].liste_arg, 1, path_total);
+                    }
+                }
+
+
+            }else{ /*si c'est le père*/
+                close(fd[1]);
+                fd_in = fd[0];
+
+            }
         }
-        i++;
+    y++;
     }
-    if(liste_arg[i] != NULL && strcmp(liste_arg[i], ">")==0){
-        redirection_output(liste_arg);
-    }
-    if(liste_arg[i] != NULL && strcmp(liste_arg[i], "|")==0){
+    waitpid(fils, NULL, 0); /*on attend le fils*/
+
+
+
+
+   // }
+    //if(liste_arg[i] != NULL && strcmp(liste_arg[i], ">")==0){
+    //    redirection_output(liste_arg);
+   // }
+   // if(liste_arg[i] != NULL && strcmp(liste_arg[i], "|")==0){
         /*gérer pipes*/
-    }
+   // }
 }
 
 /*retourne le nombre de morceaux parsés par $symbole dans la chaîne $envPath, stocke ces morceaux dans le tableau $res*/
@@ -148,7 +221,7 @@ void fct_fork_exec(char **liste_arg, int executer, char path_total[256]){
    int i=0;
    int gotcha = 0; /*booléen pour savoir si on a trouvé le programme cherché dans les dossiers*/
    FILE *pFile;
-   //printf("NUMBER OF DIR : %d\n", nbDir); 
+   //printf("NUMBER OF DIR : %d\n", nbDir);
    while(i<nbDir && !gotcha){
        /*concaténer pour avoir path/programme*/
        //char path_total[256];
@@ -167,18 +240,7 @@ void fct_fork_exec(char **liste_arg, int executer, char path_total[256]){
            gotcha = 1;
            /*pour ne pas tuer mishell, on crée un nouveau processus fils pour l'exécution du programme appelé*/
            if(executer){
-                pid_t fils;
-                fils = fork();
-                if(fils == -1){ /*si le fork s'est mal passé*/
-                    exit(EXIT_FAILURE);
-                }else{
-                    if(fils == 0){/*si c'est le fils*/
-                        execv(path_total, liste_arg);
-                    }else{ /*si c'est le père*/
-                        waitpid(fils, NULL, 0); /*on attend le fils*/
-                    }
-                }
-                execv(liste_path[i], liste_arg);
+                execv(path_total, liste_arg);
            }
        }
    }
@@ -374,8 +436,56 @@ int decoupe(char **liste_retour, char *ligne_entree, char* char_decoupe){
 
     }
     liste_retour[i+1] = buffer; /* metre NULL a la fin du tableau */
+
     return i;
 }
+
+
+struct str_commande decoupe1(struct str_commande liste_commande, char *ligne_entree, char* char_decoupe){
+    strcpy(ligne_entree, ligne_entree);
+    char *buffer;
+    char *saveptr;
+    buffer = strtok_r(ligne_entree,char_decoupe,&saveptr); /* on decoupe la ligne entree en parametre avec le caractere mis en parametre*/
+
+    int i=0;
+    while (buffer != NULL){ /* tant que le buffer n'est pas à null*/
+
+        liste_commande.liste_arg[i] = buffer; /* on enregistre l'adresse du buffer dans la liste d'argument*/
+        buffer = strtok_r(NULL,char_decoupe,&saveptr);
+        i++;
+
+
+    }
+    liste_commande.liste_arg[i+1] = buffer; /* metre NULL a la fin du tableau */
+    liste_commande.nb_arg = i;
+    return liste_commande;
+}
+
+int decoupe2(struct str_commande liste_commande[MAX_COMMANDE], char *ligne_entree, char* char_decoupe){
+    strcpy(ligne_entree, ligne_entree);
+    char *buffer;
+    char *buffer2;
+    char *saveptr;
+
+
+    buffer = strtok_r(ligne_entree,char_decoupe,&saveptr); /* on decoupe la ligne entree en parametre avec le caractere mis en parametre*/
+
+    int i=0;
+    while (buffer != NULL){ /* tant que le buffer n'est pas à null*/
+
+
+
+       liste_commande[i] = decoupe1(liste_commande[i],buffer," "); /* on enregistre l'adresse du buffer dans la liste d'argument*/
+
+        buffer = strtok_r(NULL,char_decoupe,&saveptr);
+
+        i++;
+
+
+    }
+    return i;
+}
+
 
 int lire(char *chaine, int longueur){
     char *positionEntree = NULL;
@@ -582,7 +692,7 @@ int redirection_output(char **liste_arg){
     /*trouver le path de la commande*/
     fct_fork_exec(liste_arg, 0, path);
     printf("path > = %s\n", path);
-    
+
     /*ouvrir / créer le fichier où écrire l'output*/
     dest = fopen(liste_arg[2], "w");
     if(dest == NULL){
@@ -608,6 +718,37 @@ int redirection_output(char **liste_arg){
     return 0;
 }
 
+int ecrire_fichier(int entre, char *destination){
+    printf("coucou");
+    int fdIn;
+    int fdOut;
+    int nbRead;
+    char buffer[1000];
+
+     /* Ouverture du fichier de destination */
+    fdOut = open(destination, O_WRONLY | O_CREAT, 0666);
+
+    if (-1 == fdOut) {
+        printf("Erreur dans l'ouverture du fichier de destination");
+        exit(EXIT_FAILURE);
+    }
+
+
+    /* On utilise read pour envoyer le contenu du fichier1 vers le buffer */
+    nbRead = read(entre, buffer, sizeof(buffer));
+    while (nbRead > 0) {
+        write(fdOut, buffer, nbRead);
+        nbRead = read(entre, buffer, sizeof(buffer));
+    }
+
+    printf
+        ("La copie a du s'effectuer, verifiez le fichier de destination");
+
+    close(fdOut);
+
+    return 0;
+}
+
 /*analyser la ligne entrée*/
 /*prendre la ligne, exécuter jusqu'à trouver un > ou | ou rien,
  * si rien à droite => normal
@@ -616,35 +757,51 @@ int redirection_output(char **liste_arg){
 
 
 /*test pipes*/
-void fonction_test(char **liste_arg){
-    int fd[2];
+void fonction_test(char *commande){
+//    int fd[2], fd_in =0;
+//
+//    int nb_de_commande = decoupe(liste_arg,commande,"|");/* on separre les différentes commandes |*/
+//    int i =0;
+//    for(i = 0; i<nb_de_commande; i++){
+//
+//    int nb_param = decoupe(liste_arg[i],commande," ");/* on decoupe la commande avec les espaces*/
+//
+//        pid_t childpid;
+//        pid_t childpid2;
+//
+//        char readbuffer[80];
+//
+//        pipe(fd);
+//
+//        childpid = fork();
+//        if(childpid == -1){
+//            printf("Erreur fork 1\n");
+//            exit(EXIT_FAILURE);
+//        }
+//
+//        /*si c'est le fils*/
+//        if(childpid == 0){
+//            if (fd_in != 0){
+//                dup2(fd_in, 0);
+//            }
+//            if (i<nb_de_commande){
+//
+//            }
+//            close(fd[0]);
+//            dup2(stdout, fd[1]);
+//            char path_total[256];
+//            fct_fork_exec(liste_arg[i], 1, path_total);
+//            exit(EXIT_SUCCESS);
+//        }else{ /*c'est le père*/
+//            close(fd[1]);
+//            childpid2 = fork();
+//            dup2(stdin, fd[0]);
+//
+//            read(fd[0], readbuffer, sizeof(readbuffer));
+//            printf("Received : %s", readbuffer);
+//    }
+//
+//    }
 
-    pid_t childpid;
-    pid_t childpid2;
 
-    char readbuffer[80];
-
-    pipe(fd);
-
-    childpid = fork();
-    if(childpid == -1){
-        printf("Erreur fork 1\n");
-        exit(EXIT_FAILURE);
-    }
-    
-    /*si c'est le fils*/
-    if(childpid == 0){
-        close(fd[0]);
-        dup2(stdout, fd[1]);
-        char path_total[256];
-        fct_fork_exec(liste_arg, 1, path_total);
-        exit(EXIT_SUCCESS);
-    }else{ /*c'est le père*/
-        close(fd[1]);
-        childpid2 = fork();
-        dup2(stdin, fd[0]);
-
-        read(fd[0], readbuffer, sizeof(readbuffer));
-        printf("Received : %s", readbuffer);
-    }
 }
