@@ -41,7 +41,6 @@ int retirer_retourChariot(char* chaine);
 int is_in_path(char *argv);
 int parse_envPath(char res[16][256], char *envPath, char symbole);
 void fct_fork_exec(char **liste_arg, int executer, char path_total[256]);
-int redirection_output(char **liste_arg);
 int decoupe2(struct str_commande liste_commande[MAX_COMMANDE], char *ligne_entree, char* char_decoupe);
 struct str_commande decoupe1(struct str_commande liste_commande, char *ligne_entree, char* char_decoupe);
 int ecrire_fichier(int entre, char *destination);
@@ -142,7 +141,7 @@ void test_commandes(struct str_commande liste_commande[MAX_COMMANDE],char *cwd, 
                     touch(liste_commande[y].liste_arg, liste_commande[y].nb_arg);
                     exit(EXIT_SUCCESS);
                 }else if(strcmp(liste_commande[y].liste_arg[0], "cd") == 0){
-                    fn_cd(liste_commande[y].liste_arg,cwd);
+                    //fn_cd(liste_commande[y].liste_arg,cwd);
                     exit(EXIT_SUCCESS);
                 }else if(sscanf(liste_commande[y].liste_arg[0], "!%d",&chiffre )){ /*exécute la commande numero $chiffre précédente*/
                     int i;
@@ -166,7 +165,9 @@ void test_commandes(struct str_commande liste_commande[MAX_COMMANDE],char *cwd, 
                 if (redirection == 1){
                     ecrire_fichier(fd[0],liste_commande[y].liste_arg[r+1]);
                 }
-
+                if(strcmp(liste_commande[y].liste_arg[0], "cd") == 0){
+                    fn_cd(liste_commande[y].liste_arg,cwd);
+                }
             }
         }
         if (redirection == 1){
@@ -177,17 +178,6 @@ void test_commandes(struct str_commande liste_commande[MAX_COMMANDE],char *cwd, 
     y++;
     }
     waitpid(fils, NULL, 0); /*on attend le fils*/
-
-
-
-
-   // }
-    //if(liste_arg[i] != NULL && strcmp(liste_arg[i], ">")==0){
-    //    redirection_output(liste_arg);
-   // }
-   // if(liste_arg[i] != NULL && strcmp(liste_arg[i], "|")==0){
-        /*gérer pipes*/
-   // }
 }
 
 /*retourne le nombre de morceaux parsés par $symbole dans la chaîne $envPath, stocke ces morceaux dans le tableau $res*/
@@ -675,45 +665,6 @@ int copy(char **liste_arg, int taille_args){
     return 0;
 }
 
-/*Rediriger la sortie standard avec >
- * cmd > fichier
- * si le fichier existe déjà, il est écrasé
- * retour 0 si succès, -1 sinon*/
-int redirection_output(char **liste_arg){
-    FILE *dest;
-    FILE *fp;
-    char path[256];
-    char buf[BUF_SIZE];
-    ssize_t nbRead;
-
-    /*trouver le path de la commande*/
-    fct_fork_exec(liste_arg, 0, path);
-    printf("path > = %s\n", path);
-
-    /*ouvrir / créer le fichier où écrire l'output*/
-    dest = fopen(liste_arg[2], "w");
-    if(dest == NULL){
-        printf("Erreur fopen %s\n", liste_arg[2]);
-        return -1;
-    }
-
-    /*ouvrir la commande en lecture*/
-    fp = popen(path, "r");
-    if(fp == NULL){
-        printf("Erreur popen\n");
-        return -1;
-    }
-
-    /*une do...while car fread renvoie 0 quand fini et nbRead ne peut donc pas etre init à 0*/
-    do{
-        nbRead = fread(buf, sizeof(char), BUF_SIZE, fp);
-        fwrite(buf, sizeof(char), nbRead, dest);
-    }while(nbRead!=0);
-
-    pclose(fp);
-    fclose(dest);
-    return 0;
-}
 
 int ecrire_fichier(int entre, char *destination){
 
@@ -745,59 +696,3 @@ int ecrire_fichier(int entre, char *destination){
     return 0;
 }
 
-/*analyser la ligne entrée*/
-/*prendre la ligne, exécuter jusqu'à trouver un > ou | ou rien,
- * si rien à droite => normal
- * si qqchose à droite, rediriger la sortie vers l'entrée de droite : cas > + cas |
- * */
-
-
-/*test pipes*/
-void fonction_test(char *commande){
-//    int fd[2], fd_in =0;
-//
-//    int nb_de_commande = decoupe(liste_arg,commande,"|");/* on separre les différentes commandes |*/
-//    int i =0;
-//    for(i = 0; i<nb_de_commande; i++){
-//
-//    int nb_param = decoupe(liste_arg[i],commande," ");/* on decoupe la commande avec les espaces*/
-//
-//        pid_t childpid;
-//        pid_t childpid2;
-//
-//        char readbuffer[80];
-//
-//        pipe(fd);
-//
-//        childpid = fork();
-//        if(childpid == -1){
-//            printf("Erreur fork 1\n");
-//            exit(EXIT_FAILURE);
-//        }
-//
-//        /*si c'est le fils*/
-//        if(childpid == 0){
-//            if (fd_in != 0){
-//                dup2(fd_in, 0);
-//            }
-//            if (i<nb_de_commande){
-//
-//            }
-//            close(fd[0]);
-//            dup2(stdout, fd[1]);
-//            char path_total[256];
-//            fct_fork_exec(liste_arg[i], 1, path_total);
-//            exit(EXIT_SUCCESS);
-//        }else{ /*c'est le père*/
-//            close(fd[1]);
-//            childpid2 = fork();
-//            dup2(stdin, fd[0]);
-//
-//            read(fd[0], readbuffer, sizeof(readbuffer));
-//            printf("Received : %s", readbuffer);
-//    }
-//
-//    }
-
-
-}
